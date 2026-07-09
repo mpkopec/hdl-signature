@@ -9,7 +9,7 @@ description = "Parses VHDL/Verilog entity and module declarations into a shared 
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Maciej Paweł Kopeć", email = "maciejpkopec@gmail.com" }]
-dependencies = ["pyVHDLModel", "pyVHDLParser"]
+dependencies = ["tree-sitter", "tree-sitter-vhdl"]
 
 [project.optional-dependencies]
 test = ["pytest"]
