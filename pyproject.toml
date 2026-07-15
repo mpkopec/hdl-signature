@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "hdl-signature"
 version = "0.1.0"
 description = "Parses VHDL/Verilog entity and module declarations into a shared interface model, rendered as instantiation templates or documentation diagrams."
+readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Maciej Paweł Kopeć", email = "maciejpkopec@gmail.com" }]
