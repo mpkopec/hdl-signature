@@ -252,7 +252,7 @@ and the list comprehension over an empty input simply yields `[]`.
 
 ```python
 _TEMPLATE = jinja2.Template(
-    "{{ label }} : entity {{ library }}.{{ entity_name }}\n"
+    "{{ label }} : {{ entity_kw }}{{ library }}{{ entity_name }}\n"
     "{% if generics %}"
     "  generic map (\n"
     "{% for entry in generics %}"
@@ -278,7 +278,11 @@ def render_vhdl_instantiation(signature: Signature, style: _Style) -> str:
     n = next(tabstop_counter)
     label = f"${{{n}:{signature.name}_inst}}"
     n = next(tabstop_counter)
-    library = f"${{{n}:work}}"
+    entity_kw = f"${{{n}:entity }}"
+    n = next(tabstop_counter)
+    library = f"${{{n}:work.}}"
+    n = next(tabstop_counter)
+    entity_name = f"${{{n}:{signature.name}}}"
 
     generics = _build_map_entries(
         [(g.name, g.default) for g in signature.generics], style, tabstop_counter
@@ -289,8 +293,9 @@ def render_vhdl_instantiation(signature: Signature, style: _Style) -> str:
 
     body = _TEMPLATE.render(
         label=label,
+        entity_kw=entity_kw,
         library=library,
-        entity_name=signature.name,
+        entity_name=entity_name,
         generics=generics,
         ports=ports,
     )
@@ -301,14 +306,37 @@ def render_vhdl_instantiation(signature: Signature, style: _Style) -> str:
 
 `itertools.count(1)` is created exactly once per call, at the top of
 `render_vhdl_instantiation`, and threaded — the same `Iterator[int]` object,
-never a fresh one — through the label, the library, and both calls to
-`_build_map_entries` (which in turn passes it on to every `_rhs` call).
-This is what keeps numbering contiguous across sections that are otherwise
-built independently: the label always claims `$1`, the library always
-claims `$2` (both unconditional, unaffected by any style flag — Section 1
-established these have no plain-text form at all), and the first generic or
-port map_entry that produces a tabstop picks up at `$3` and onward,
-whichever map it belongs to.
+never a fresh one — through the label, the `entity` keyword, the library,
+the entity name, and both calls to `_build_map_entries` (which in turn
+passes it on to every `_rhs` call). This is what keeps numbering contiguous
+across sections that are otherwise built independently: the label always
+claims `$1`, `entity ` always claims `$2`, the library always claims `$3`,
+and the entity name always claims `$4` (all four unconditional, unaffected
+by any style flag — Section 1 established these have no plain-text form at
+all), with the first generic or port map_entry that produces a tabstop
+picking up at `$5` and onward, whichever map it belongs to.
+
+### Four tabstops, three instantiation styles
+
+`entity `'s trailing space and `work.`'s trailing `.` are pre-filled *inside*
+their own tabstop rather than left as literal characters in the template
+between `{{ entity_kw }}` and `{{ library }}`. This is what lets either
+tabstop be deleted outright, rather than deleting it leaving an orphaned
+space or `.` behind for the user to clean up by hand. Three renderings are
+reachable from the one snippet body, depending on which of `$2`
+(`entity `)/`$3` (`work.`) the user clears while tabbing through:
+
+| `$2` (`entity `) | `$3` (`work.`) | Result                          | VHDL form                          |
+|-------------------|-----------------|----------------------------------|-------------------------------------|
+| kept               | kept            | `label : entity work.fifo`      | direct entity instantiation (qualified) |
+| kept               | cleared         | `label : entity fifo`           | direct entity instantiation (unqualified — `fifo` resolved as a directly visible name) |
+| cleared            | cleared         | `label : fifo`                  | component instantiation (`fifo` bound to a separately declared component) |
+
+Clearing `$3` alone and keeping `$2` is the only combination of the four
+that doesn't collapse a `$2`/`$3` pair to nothing — VHDL's direct entity
+instantiation accepts a bare `entity_name` in place of a library-qualified
+`library.entity_name`, per the LRM's `entity_aspect` grammar, so this row is
+valid VHDL rather than a leftover fragment.
 
 ### What the template does, and doesn't, decide
 
@@ -344,36 +372,37 @@ this renderer that lives in Python rather than in the template.
 `True` — renders to:
 
 ```
-${1:fifo_inst} : entity ${2:work}.fifo
+${1:fifo_inst} : ${2:entity }${3:work.}${4:fifo}
   generic map (
-    WIDTH => ${3:8},
-    DEPTH => ${4}
+    WIDTH => ${5:8},
+    DEPTH => ${6}
   )
   port map (
-    clk   => ${5:clk},
-    rst   => ${6:rst},
-    sin   => ${7:sin},
-    write => ${8:write},
-    dout  => ${9:dout},
-    dio   => ${10:dio}
+    clk   => ${7:clk},
+    rst   => ${8:rst},
+    sin   => ${9:sin},
+    write => ${10:write},
+    dout  => ${11:dout},
+    dio   => ${12:dio}
   );
 $0
 ```
 
-`$1`/`$2` are the label and library, unconditional per Section 6. `$3`
-(`WIDTH`) carries its declared default `"8"` as prefill text; `$4` (`DEPTH`)
-does not, since `Generic.default` is `None` for it — the empty-tabstop row
-of Section 4's table. `$5`–`$10` are the six ports, each pre-filled with its
-own name, and left-padded (`clk` through `write` to width 5, matching
-`write`, the longest port name) since `style.align` defaults to `True`.
+`$1`–`$4` are the label, `entity ` keyword, library, and entity name,
+unconditional per Section 6. `$5` (`WIDTH`) carries its declared default
+`"8"` as prefill text; `$6` (`DEPTH`) does not, since `Generic.default` is
+`None` for it — the empty-tabstop row of Section 4's table. `$7`–`$12` are
+the six ports, each pre-filled with its own name, and left-padded (`clk`
+through `write` to width 5, matching `write`, the longest port name) since
+`style.align` defaults to `True`.
 
 With every flag set to `False` instead, the same signature renders with no
-tabstops at all past the label/library (which, as Section 1 noted, are
+tabstops at all past the header's four (which, as Section 1 noted, are
 never subject to the three style flags), no prefill text, and no alignment
 padding:
 
 ```
-${1:fifo_inst} : entity ${2:work}.fifo
+${1:fifo_inst} : ${2:entity }${3:work.}${4:fifo}
   generic map (
     WIDTH => ,
     DEPTH => 
@@ -394,28 +423,18 @@ generics nor ports — collapses to just the header, both `{% if %}` clauses
 in Section 6 evaluating false:
 
 ```
-${1:bare_inst} : entity ${2:work}.bare;
+${1:bare_inst} : ${2:entity }${3:work.}${4:bare};
 $0
 ```
 
 ## 8. Deferred work
 
-Two extensions were discussed but deliberately not implemented here:
-
-An entity-vs-component instantiation switch — VHDL allows both direct
-entity instantiation (`label : entity work.fifo`, the only form this
-renderer produces) and component instantiation (`label : component fifo`,
-requiring a separate `component` declaration elsewhere) — is left for a
-later session; if added, it would most likely take the form of another
-`_Style`-level flag or a second per-language entry point, not a change to
-`_snippet.py`, since the choice is specific to how VHDL structures an
-instantiation statement.
-
-Making the `work` library name itself further editable — e.g. splitting
-`entity`/`work` into two independently tab-stoppable pieces, or letting a
-different library name be supplied — is likewise left as-is: `work` is
-already a tabstop (`${2:work}`, Section 6), just not one with more than one
-candidate default to choose between.
+An entity-vs-component instantiation switch, and splitting `entity`/`work`
+into independently tab-stoppable pieces, were both once listed here as
+deferred; Section 6's four-tabstop header (`$1`–`$4`) now implements both in
+one snippet body rather than as a separate `_Style` flag — see "Four
+tabstops, three instantiation styles" above for which tabstops to clear for
+which VHDL form.
 
 A Verilog/SystemVerilog renderer (`_verilog_instantiate.py`, registered
 alongside the VHDL entry in `_RENDERERS`) has not been started; Section 1

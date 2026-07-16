@@ -13,7 +13,7 @@ from hdl_signature._snippet import _Style, _build_map_entries
 from hdl_signature.ir import Signature
 
 _TEMPLATE = jinja2.Template(
-    "{{ label }} : entity {{ library }}.{{ entity_name }}\n"
+    "{{ label }} : {{ entity_kw }}{{ library }}{{ entity_name }}\n"
     "{% if generics %}"
     "  generic map (\n"
     "{% for entry in generics %}"
@@ -40,12 +40,23 @@ def render_vhdl_instantiation(signature: Signature, style: _Style) -> str:
     """
     tabstop_counter = itertools.count(1)
 
-    # The instance label and library name have no plain-text form - always a
-    # tabstop, always pre-filled, unlike a map entry's right-hand side.
+    # The instance label, the "entity " keyword, the library name, and the
+    # entity name have no plain-text form - always a tabstop, always
+    # pre-filled, unlike a map entry's right-hand side. Splitting "entity "
+    # and the library's trailing "." into their own tabstops (rather than
+    # leaving them as template-literal glue) lets either be deleted on its
+    # own, switching the rendered header between VHDL-2008 direct entity
+    # instantiation (label : entity library.name), the unqualified form
+    # (label : entity name), and component instantiation (label : name) -
+    # without a separate style flag for which form is wanted.
     n = next(tabstop_counter)
     label = f"${{{n}:{signature.name}_inst}}"
     n = next(tabstop_counter)
-    library = f"${{{n}:work}}"
+    entity_kw = f"${{{n}:entity }}"
+    n = next(tabstop_counter)
+    library = f"${{{n}:work.}}"
+    n = next(tabstop_counter)
+    entity_name = f"${{{n}:{signature.name}}}"
 
     generics = _build_map_entries(
         [(g.name, g.default) for g in signature.generics], style, tabstop_counter
@@ -56,8 +67,9 @@ def render_vhdl_instantiation(signature: Signature, style: _Style) -> str:
 
     body = _TEMPLATE.render(
         label=label,
+        entity_kw=entity_kw,
         library=library,
-        entity_name=signature.name,
+        entity_name=entity_name,
         generics=generics,
         ports=ports,
     )
